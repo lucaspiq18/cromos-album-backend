@@ -28,7 +28,7 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const hash = await bcrypt.hash(body.password, 12)
-    const customerId = await getOrCreateCustomer(body.email, body.username)
+    const customerId = await getOrCreateCustomer(body.email, body.username).catch(() => null)
 
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO users (email, username, password_hash, stripe_customer_id)
