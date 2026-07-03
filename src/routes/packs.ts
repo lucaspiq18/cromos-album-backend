@@ -95,6 +95,34 @@ export async function packRoutes(app: FastifyInstance) {
     return { received: true }
   })
 
+  // TEST ONLY: buy a pack without Stripe (only works in non-production)
+  app.post('/packs/buy-test', { onRequest: [app.authenticate] }, async (req, reply) => {
+    if (process.env.ENABLE_TEST_PURCHASES !== 'true') {
+      return reply.code(403).send({ error: 'Compras de prueba no habilitadas' })
+    }
+    const userId = (req.user as { sub: string }).sub
+    const body = BuySchema.parse(req.body)
+
+    const { rows: packRows } = await db.query(
+      'SELECT * FROM pack_types WHERE id=$1 AND active=TRUE',
+      [body.pack_type_id],
+    )
+    if (packRows.length === 0) return reply.code(404).send({ error: 'Tipo de sobre no encontrado' })
+    const pack = packRows[0]
+    const total = pack.price_cents * body.quantity
+
+    const { rows: purchaseRows } = await db.query<{ id: string }>(
+      `INSERT INTO purchases (user_id, pack_type_id, quantity, total_cents, status)
+       VALUES ($1,$2,$3,$4,'completed') RETURNING id`,
+      [userId, body.pack_type_id, body.quantity, total],
+    )
+    const purchaseId = purchaseRows[0].id
+    const totalStickers = pack.sticker_count * body.quantity
+    await openPack(userId, purchaseId, totalStickers, pack.rarity_weights)
+
+    return { purchase_id: purchaseId }
+  })
+
   // Get stickers from a completed purchase (to show in opening animation)
   app.get('/packs/purchases/:id/stickers', { onRequest: [app.authenticate] }, async (req, reply) => {
     const userId = (req.user as { sub: string }).sub
